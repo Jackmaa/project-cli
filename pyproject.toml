@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "project-cli"
+version = "0.1.0"
+description = "CLI to manage your mountain of unfinished projects"
+authors = ["vraith"]
+readme = "README.md"
+packages = [{include = "projects"}]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+typer = {extras = ["all"], version = "^0.12.0"}
+rich = "^13.7.0"
+
+[tool.poetry.scripts]
+projects = "projects.cli:app"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

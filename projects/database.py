@@ -1,0 +1,360 @@
+"""Database layer for projects management."""
+
+import sqlite3
+from pathlib import Path
+from typing import List, Optional
+from datetime import datetime
+
+from .models import Project
+
+
+# Emplacement de la base de donn�es
+DB_DIR = Path.home() / ".config" / "project-cli"
+DB_PATH = DB_DIR / "projects.db"
+
+
+def init_db() -> sqlite3.Connection:
+    """Initialize database and create tables if they don't exist."""
+    # Cr�er le dossier de config si besoin
+    DB_DIR.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Table projects
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            path TEXT,
+            description TEXT,
+            status TEXT DEFAULT 'active',
+            priority TEXT DEFAULT 'medium',
+            language TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_activity TIMESTAMP
+        )
+    """)
+
+    # Table tags
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tags (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER,
+            tag TEXT,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        )
+    """)
+
+    conn.commit()
+    return conn
+
+
+def add_project(
+    name: str,
+    description: Optional[str] = None,
+    path: Optional[str] = None,
+    priority: str = "medium",
+    language: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    last_activity: Optional[datetime] = None,
+) -> bool:
+    """Add a new project to the database."""
+    conn = init_db()
+    cursor = conn.cursor()
+
+    try:
+        # Ins�rer le projet
+        cursor.execute(
+            """
+            INSERT INTO projects (name, description, path, priority, language, last_activity)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (name, description, path, priority, language, last_activity),
+        )
+        project_id = cursor.lastrowid
+
+        # Ajouter les tags
+        if tags:
+            for tag in tags:
+                cursor.execute(
+                    "INSERT INTO tags (project_id, tag) VALUES (?, ?)",
+                    (project_id, tag),
+                )
+
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        # Le projet existe d�j�
+        return False
+    finally:
+        conn.close()
+
+
+def get_all_projects(
+    status: Optional[str] = None, tag: Optional[str] = None
+) -> List[Project]:
+    """Get all projects, optionally filtered by status or tag."""
+    conn = init_db()
+    cursor = conn.cursor()
+
+    # Query de base
+    query = """
+        SELECT DISTINCT p.id, p.name, p.path, p.description, p.status, p.priority,
+               p.language, p.created_at, p.updated_at, p.last_activity
+        FROM projects p
+    """
+
+    params = []
+
+    # Filtrer par tag si demand�
+    if tag:
+        query += " JOIN tags t ON p.id = t.project_id WHERE t.tag = ?"
+        params.append(tag)
+
+    # Filtrer par statut
+    if status:
+        if tag:
+            query += " AND p.status = ?"
+        else:
+            query += " WHERE p.status = ?"
+        params.append(status)
+
+    query += " ORDER BY p.updated_at DESC"
+
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+
+    projects = []
+    for row in rows:
+        # R�cup�rer les tags pour ce projet
+        cursor.execute("SELECT tag FROM tags WHERE project_id = ?", (row[0],))
+        tags = [t[0] for t in cursor.fetchall()]
+
+        projects.append(
+            Project(
+                id=row[0],
+                name=row[1],
+                path=row[2],
+                description=row[3],
+                status=row[4],
+                priority=row[5],
+                language=row[6],
+                created_at=row[7],
+                updated_at=row[8],
+                last_activity=row[9],
+                tags=tags,
+            )
+        )
+
+    conn.close()
+    return projects
+
+
+def get_project(name: str) -> Optional[Project]:
+    """Get a single project by name."""
+    conn = init_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT id, name, path, description, status, priority, language,
+               created_at, updated_at, last_activity
+        FROM projects WHERE name = ?
+        """,
+        (name,),
+    )
+    row = cursor.fetchone()
+
+    if not row:
+        conn.close()
+        return None
+
+    # R�cup�rer les tags
+    cursor.execute("SELECT tag FROM tags WHERE project_id = ?", (row[0],))
+    tags = [t[0] for t in cursor.fetchall()]
+
+    project = Project(
+        id=row[0],
+        name=row[1],
+        path=row[2],
+        description=row[3],
+        status=row[4],
+        priority=row[5],
+        language=row[6],
+        created_at=row[7],
+        updated_at=row[8],
+        last_activity=row[9],
+        tags=tags,
+    )
+
+    conn.close()
+    return project
+
+
+def update_project_status(name: str, status: str) -> bool:
+    """Update the status of a project."""
+    conn = init_db()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(
+            """
+            UPDATE projects
+            SET status = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE name = ?
+            """,
+            (status, name),
+        )
+        conn.commit()
+        success = cursor.rowcount > 0
+    finally:
+        conn.close()
+
+    return success
+
+
+def delete_project(name: str) -> bool:
+    """Delete a project by name."""
+    conn = init_db()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("DELETE FROM projects WHERE name = ?", (name,))
+        conn.commit()
+        success = cursor.rowcount > 0
+    finally:
+        conn.close()
+
+    return success
+
+
+def get_stats() -> dict:
+    """Get statistics about all projects."""
+    conn = init_db()
+    cursor = conn.cursor()
+
+    # Total projects
+    cursor.execute("SELECT COUNT(*) FROM projects")
+    total = cursor.fetchone()[0]
+
+    # By status
+    cursor.execute(
+        """
+        SELECT status, COUNT(*) FROM projects GROUP BY status
+        """
+    )
+    by_status = dict(cursor.fetchall())
+
+    # By priority
+    cursor.execute(
+        """
+        SELECT priority, COUNT(*) FROM projects GROUP BY priority
+        """
+    )
+    by_priority = dict(cursor.fetchall())
+
+    # Oldest stale project (sans activit�)
+    cursor.execute(
+        """
+        SELECT name, last_activity FROM projects
+        WHERE last_activity IS NOT NULL AND status = 'active'
+        ORDER BY last_activity ASC LIMIT 1
+        """
+    )
+    stale = cursor.fetchone()
+
+    conn.close()
+
+    return {
+        "total": total,
+        "by_status": by_status,
+        "by_priority": by_priority,
+        "oldest_stale": stale,
+    }
+
+
+def add_tags(name: str, tags: List[str]) -> bool:
+    """Add tags to a project."""
+    conn = init_db()
+    cursor = conn.cursor()
+
+    # Récupérer l'ID du projet
+    cursor.execute("SELECT id FROM projects WHERE name = ?", (name,))
+    result = cursor.fetchone()
+
+    if not result:
+        conn.close()
+        return False
+
+    project_id = result[0]
+
+    # Ajouter chaque tag s'il n'existe pas déjà
+    for tag in tags:
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO tags (project_id, tag)
+            SELECT ?, ? WHERE NOT EXISTS (
+                SELECT 1 FROM tags WHERE project_id = ? AND tag = ?
+            )
+            """,
+            (project_id, tag, project_id, tag),
+        )
+
+    conn.commit()
+    conn.close()
+    return True
+
+
+def remove_tags(name: str, tags: List[str]) -> bool:
+    """Remove tags from a project."""
+    conn = init_db()
+    cursor = conn.cursor()
+
+    # Récupérer l'ID du projet
+    cursor.execute("SELECT id FROM projects WHERE name = ?", (name,))
+    result = cursor.fetchone()
+
+    if not result:
+        conn.close()
+        return False
+
+    project_id = result[0]
+
+    # Supprimer les tags
+    for tag in tags:
+        cursor.execute(
+            "DELETE FROM tags WHERE project_id = ? AND tag = ?",
+            (project_id, tag),
+        )
+
+    conn.commit()
+    conn.close()
+    return True
+
+
+def update_project_field(name: str, field: str, value) -> bool:
+    """Update a specific field of a project."""
+    conn = init_db()
+    cursor = conn.cursor()
+
+    # Liste des champs autorisés
+    allowed_fields = ["name", "description", "priority", "status", "language", "path"]
+
+    if field not in allowed_fields:
+        conn.close()
+        return False
+
+    try:
+        query = f"UPDATE projects SET {field} = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?"
+        cursor.execute(query, (value, name))
+        conn.commit()
+        success = cursor.rowcount > 0
+    except sqlite3.IntegrityError:
+        # Erreur si le nouveau nom existe déjà
+        success = False
+    finally:
+        conn.close()
+
+    return success
