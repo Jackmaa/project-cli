@@ -16,6 +16,11 @@ Tu as des dizaines de projets en cours, abandonnés, ou pausés ? Tu ne sais plu
 - Affichage coloré et joli avec Rich
 - Statistiques sur tes projets
 - Commande `stale` pour trouver les projets abandonnés
+- **Nouveau !** Voir l'historique git avec `commits` (tableau) et `git-tree` (graphe)
+- **Nouveau !** Journalisation d'activité avec `log`
+- **Nouveau !** Visualiser l'arborescence des fichiers avec `tree`
+- **Nouveau !** Stats GitHub avec `github`
+- **Architecture modulaire** - Chaque commande dans son propre fichier
 
 ## Installation
 
@@ -38,7 +43,13 @@ cd project-cli
 python3 -m projects.cli --help
 ```
 
-## Commandes
+## 📚 Documentation
+
+**[→ Liste complète des commandes avec documentation détaillée](COMMANDES.md)**
+
+## Commandes - Exemples rapides
+
+> Pour la documentation complète de chaque commande, voir **[COMMANDES.md](COMMANDES.md)**
 
 ### Add - Ajouter un projet
 
@@ -62,7 +73,6 @@ python3 -m projects.cli list
 
 # Filtrer par statut
 python3 -m projects.cli list --status active
-python3 -m projects.cli list --status abandoned
 
 # Filtrer par tag
 python3 -m projects.cli list --tag web
@@ -136,19 +146,105 @@ python3 -m projects.cli stale --days 60
 python3 -m projects.cli rm "old-project"
 ```
 
+### Commits - Historique Git (tableau)
+
+```bash
+# Voir les 10 derniers commits
+python3 -m projects.cli commits "my-project"
+
+# Voir les 20 derniers commits
+python3 -m projects.cli commits "my-project" --limit 20
+
+# Filtrer par auteur
+python3 -m projects.cli commits "my-project" --author "Valentin"
+```
+
+### Git-tree - Historique Git en arbre
+
+```bash
+# Voir l'historique comme un arbre (branches, merges, etc.)
+python3 -m projects.cli git-tree "my-project"
+
+# Voir 30 commits
+python3 -m projects.cli git-tree "my-project" -n 30
+
+# Voir toutes les branches
+python3 -m projects.cli git-tree "my-project" --all
+
+# Filtrer par auteur
+python3 -m projects.cli git-tree "my-project" --author "Valentin"
+```
+
+### Log - Journalisation d'activité
+
+```bash
+# Ajouter une entrée de log
+python3 -m projects.cli log "my-project" --add "Fixed authentication bug"
+
+# Voir les logs d'un projet
+python3 -m projects.cli log "my-project"
+
+# Voir tous les logs récents
+python3 -m projects.cli log
+```
+
+### Tree - Arborescence du projet
+
+```bash
+# Afficher toute l'arborescence
+python3 -m projects.cli tree "my-project"
+
+# Limiter la profondeur
+python3 -m projects.cli tree "my-project" --depth 2
+
+# Afficher les fichiers cachés
+python3 -m projects.cli tree "my-project" --all
+```
+
+### GitHub - Statistiques GitHub
+
+```bash
+# Récupérer les stats depuis l'API GitHub
+python3 -m projects.cli github "my-project"
+```
+
+Affiche :
+- Nombre de stars, forks, watchers
+- Issues ouvertes
+- Langage principal
+- Taille du repo
+- Dates de création/mise à jour
+- Licence
+
 ## Structure du projet
 
 ```
 project-cli/
 ├── projects/
 │   ├── __init__.py
-│   ├── cli.py          # Commandes CLI
+│   ├── cli.py          # Point d'entrée (simplifié avec chargement dynamique)
 │   ├── database.py     # Couche base de données
 │   ├── models.py       # Modèles de données
-│   └── display.py      # Affichage avec Rich
+│   ├── display.py      # Affichage avec Rich
+│   └── commands/       # Architecture modulaire - chaque commande = 1 fichier
+│       ├── __init__.py # Système de chargement dynamique
+│       ├── add.py
+│       ├── list.py
+│       ├── commits.py   # Nouveau ! (tableau)
+│       ├── git_tree.py # Nouveau ! (graphe)
+│       ├── log.py      # Nouveau !
+│       ├── tree.py     # Nouveau !
+│       ├── github.py   # Nouveau !
+│       └── ...
 ├── pyproject.toml      # Configuration
-└── README.md
+├── README.md
+└── ARCHITECTURE.md     # Documentation de l'architecture
 ```
+
+**Documentation complète :**
+- **[COMMANDES.md](COMMANDES.md)** - Liste et documentation de toutes les commandes
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Architecture modulaire du projet
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Guide pour ajouter des commandes
 
 ## Base de données
 
@@ -157,6 +253,7 @@ Les données sont stockées dans `~/.config/project-cli/projects.db` (SQLite).
 Tables :
 - `projects` : Informations sur les projets
 - `tags` : Tags associés aux projets
+- `activity_logs` : Journalisation de l'activité (nouveau !)
 
 ## Exemples d'utilisation
 
