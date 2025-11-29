@@ -47,6 +47,17 @@ def init_db() -> sqlite3.Connection:
         )
     """)
 
+    # Table activity_logs
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS activity_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER,
+            message TEXT NOT NULL,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        )
+    """)
+
     conn.commit()
     return conn
 
@@ -358,3 +369,96 @@ def update_project_field(name: str, field: str, value) -> bool:
         conn.close()
 
     return success
+
+
+def add_log_entry(name: str, message: str) -> bool:
+    """Add an activity log entry for a project."""
+    conn = init_db()
+    cursor = conn.cursor()
+
+    # Récupérer l'ID du projet
+    cursor.execute("SELECT id FROM projects WHERE name = ?", (name,))
+    result = cursor.fetchone()
+
+    if not result:
+        conn.close()
+        return False
+
+    project_id = result[0]
+
+    # Ajouter l'entrée de log
+    cursor.execute(
+        "INSERT INTO activity_logs (project_id, message) VALUES (?, ?)",
+        (project_id, message),
+    )
+
+    # Mettre à jour le timestamp du projet
+    cursor.execute(
+        "UPDATE projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (project_id,),
+    )
+
+    conn.commit()
+    conn.close()
+    return True
+
+
+def get_project_logs(name: str, limit: int = 20) -> list:
+    """Get activity logs for a specific project."""
+    conn = init_db()
+    cursor = conn.cursor()
+
+    # Récupérer l'ID du projet
+    cursor.execute("SELECT id FROM projects WHERE name = ?", (name,))
+    result = cursor.fetchone()
+
+    if not result:
+        conn.close()
+        return []
+
+    project_id = result[0]
+
+    # Récupérer les logs
+    cursor.execute(
+        """
+        SELECT message, timestamp
+        FROM activity_logs
+        WHERE project_id = ?
+        ORDER BY timestamp DESC
+        LIMIT ?
+        """,
+        (project_id, limit),
+    )
+
+    logs = [
+        {"project_name": name, "message": row[0], "timestamp": row[1]}
+        for row in cursor.fetchall()
+    ]
+
+    conn.close()
+    return logs
+
+
+def get_all_logs(limit: int = 20) -> list:
+    """Get activity logs for all projects."""
+    conn = init_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT p.name, l.message, l.timestamp
+        FROM activity_logs l
+        JOIN projects p ON l.project_id = p.id
+        ORDER BY l.timestamp DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+
+    logs = [
+        {"project_name": row[0], "message": row[1], "timestamp": row[2]}
+        for row in cursor.fetchall()
+    ]
+
+    conn.close()
+    return logs
