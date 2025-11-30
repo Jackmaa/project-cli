@@ -68,6 +68,46 @@ def format_relative_time(dt: datetime) -> str:
         return f"{years}y ago"
 
 
+def format_git_status(git_status: dict) -> str:
+    """
+    Format git status for display in table.
+
+    Examples:
+        "main ✓" - On main, up to date
+        "dev ↑2" - On dev, 2 commits ahead
+        "main ↓3" - On main, 3 commits behind
+        "feat ↑1↓2" - On feat, 1 ahead, 2 behind
+        "main *3" - On main, 3 uncommitted changes
+        "dev ↑1*2" - On dev, 1 ahead, 2 uncommitted
+        "-" - Not a git repo
+    """
+    if not git_status or not git_status.get("is_repo"):
+        return "-"
+
+    branch = git_status.get("branch", "?")
+    uncommitted = git_status.get("uncommitted_changes", 0)
+    ahead = git_status.get("ahead", 0)
+    behind = git_status.get("behind", 0)
+    has_remote = git_status.get("has_remote", False)
+
+    parts = [branch]
+
+    # Add ahead/behind indicators
+    if has_remote:
+        if ahead > 0:
+            parts.append(f"↑{ahead}")
+        if behind > 0:
+            parts.append(f"↓{behind}")
+        if ahead == 0 and behind == 0 and uncommitted == 0:
+            parts.append("✓")
+
+    # Add uncommitted changes indicator
+    if uncommitted > 0:
+        parts.append(f"*{uncommitted}")
+
+    return " ".join(parts)
+
+
 def display_projects_table(projects: List[Project]):
     """Display projects in a formatted table."""
     if not projects:
@@ -80,6 +120,7 @@ def display_projects_table(projects: List[Project]):
     table.add_column("Status", justify="center")
     table.add_column("Priority", justify="center")
     table.add_column("Language", style="magenta")
+    table.add_column("Git", style="yellow", no_wrap=True)
     table.add_column("Last Activity", style="dim")
     table.add_column("Tags", style="blue")
 
@@ -99,11 +140,15 @@ def display_projects_table(projects: List[Project]):
         # Priority avec emoji
         priority_str = f"{get_priority_emoji(project.priority)} {project.priority}"
 
+        # Format git status
+        git_str = format_git_status(project.git_status)
+
         table.add_row(
             project.name,
             status_str,
             priority_str,
             project.language or "-",
+            git_str,
             activity,
             tags_str,
             style=get_status_color(project.status),

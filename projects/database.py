@@ -58,6 +58,22 @@ def init_db() -> sqlite3.Connection:
         )
     """)
 
+    # Table git_status_cache
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS git_status_cache (
+            project_id INTEGER PRIMARY KEY,
+            is_repo BOOLEAN NOT NULL DEFAULT 0,
+            branch TEXT,
+            uncommitted_changes INTEGER DEFAULT 0,
+            ahead INTEGER DEFAULT 0,
+            behind INTEGER DEFAULT 0,
+            has_remote BOOLEAN DEFAULT 0,
+            remote_branch TEXT,
+            cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        )
+    """)
+
     conn.commit()
     return conn
 
@@ -143,6 +159,9 @@ def get_all_projects(
         cursor.execute("SELECT tag FROM tags WHERE project_id = ?", (row[0],))
         tags = [t[0] for t in cursor.fetchall()]
 
+        # Récupérer le git status depuis le cache
+        git_status = get_git_status_cache(row[0])
+
         projects.append(
             Project(
                 id=row[0],
@@ -156,6 +175,7 @@ def get_all_projects(
                 updated_at=row[8],
                 last_activity=row[9],
                 tags=tags,
+                git_status=git_status,
             )
         )
 
@@ -186,6 +206,9 @@ def get_project(name: str) -> Optional[Project]:
     cursor.execute("SELECT tag FROM tags WHERE project_id = ?", (row[0],))
     tags = [t[0] for t in cursor.fetchall()]
 
+    # Récupérer le git status depuis le cache
+    git_status = get_git_status_cache(row[0])
+
     project = Project(
         id=row[0],
         name=row[1],
@@ -198,6 +221,7 @@ def get_project(name: str) -> Optional[Project]:
         updated_at=row[8],
         last_activity=row[9],
         tags=tags,
+        git_status=git_status,
     )
 
     conn.close()
@@ -462,3 +486,123 @@ def get_all_logs(limit: int = 20) -> list:
 
     conn.close()
     return logs
+
+
+def save_git_status_cache(project_id: int, git_status: dict) -> None:
+    """Save git status to cache."""
+    conn = init_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        INSERT OR REPLACE INTO git_status_cache
+        (project_id, is_repo, branch, uncommitted_changes, ahead, behind, has_remote, remote_branch, cached_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """,
+        (
+            project_id,
+            git_status.get("is_repo", False),
+            git_status.get("branch"),
+            git_status.get("uncommitted_changes", 0),
+            git_status.get("ahead", 0),
+            git_status.get("behind", 0),
+            git_status.get("has_remote", False),
+            git_status.get("remote_branch"),
+        ),
+    )
+
+    conn.commit()
+    conn.close()
+
+
+def get_git_status_cache(project_id: int, ttl_minutes: int = 5) -> Optional[dict]:
+    """
+    Get git status from cache if still valid.
+
+    Args:
+        project_id: Project ID
+        ttl_minutes: Cache TTL in minutes (default: 5)
+
+    Returns:
+        Git status dict if cache is valid, None otherwise
+    """
+    conn = init_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT is_repo, branch, uncommitted_changes, ahead, behind, has_remote, remote_branch, cached_at
+        FROM git_status_cache
+        WHERE project_id = ?
+        AND datetime(cached_at, '+' || ? || ' minutes') > datetime('now')
+        """,
+        (project_id, ttl_minutes),
+    )
+
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return None
+
+    return {
+        "is_repo": bool(row[0]),
+        "branch": row[1],
+        "uncommitted_changes": row[2],
+        "ahead": row[3],
+        "behind": row[4],
+        "has_remote": bool(row[5]),
+        "remote_branch": row[6],
+        "cached_at": row[7],
+    }
+
+
+def clear_git_status_cache(project_id: Optional[int] = None) -> None:
+    """
+    Clear git status cache.
+
+    Args:
+        project_id: If specified, clear cache for this project only.
+                   If None, clear all cache.
+    """
+    conn = init_db()
+    cursor = conn.cursor()
+
+    if project_id:
+        cursor.execute("DELETE FROM git_status_cache WHERE project_id = ?", (project_id,))
+    else:
+        cursor.execute("DELETE FROM git_status_cache")
+
+    conn.commit()
+    conn.close()
+
+
+def update_git_status_for_project(project: Project, fetch: bool = False) -> None:
+    """
+    Update git status cache for a project by checking the actual git repo.
+
+    Args:
+        project: Project to update git status for
+        fetch: Whether to fetch from remote (default: False)
+    """
+    from pathlib import Path
+    from . import git_utils
+
+    if not project.path:
+        return
+
+    path = Path(project.path)
+    git_status = git_utils.get_git_status(path, fetch=fetch)
+
+    # Convert GitStatus dataclass to dict
+    status_dict = {
+        "is_repo": git_status.is_repo,
+        "branch": git_status.branch,
+        "uncommitted_changes": git_status.uncommitted_changes,
+        "ahead": git_status.ahead,
+        "behind": git_status.behind,
+        "has_remote": git_status.has_remote,
+        "remote_branch": git_status.remote_branch,
+    }
+
+    save_git_status_cache(project.id, status_dict)

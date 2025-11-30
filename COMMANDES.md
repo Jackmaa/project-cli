@@ -8,12 +8,18 @@ Chaque commande possède sa propre documentation détaillée avec des exemples d
 
 ---
 
+## 🖥️ Interface
+
+| Commande | Description | Documentation |
+|----------|-------------|---------------|
+| **dashboard** | 🔥 **TUI Dashboard** - Interface complète en plein écran | - |
+
 ## 🔧 Gestion de base
 
 | Commande | Description | Documentation |
 |----------|-------------|---------------|
 | **add** | Ajouter un nouveau projet | [→ Voir la doc](docs/commands/add.md) |
-| **list** | Lister tous les projets | [→ Voir la doc](docs/commands/list.md) |
+| **list** | Lister tous les projets (avec statut git!) | [→ Voir la doc](docs/commands/list.md) |
 | **info** | Afficher les détails d'un projet | [→ Voir la doc](docs/commands/info.md) |
 | **edit** | Modifier les informations d'un projet | [→ Voir la doc](docs/commands/edit.md) |
 | **rm** | Supprimer un projet | [→ Voir la doc](docs/commands/rm.md) |
@@ -51,7 +57,15 @@ Chaque commande possède sa propre documentation détaillée avec des exemples d
 
 | Commande | Description | Documentation |
 |----------|-------------|---------------|
-| **github** | Récupérer les stats GitHub d'un projet | [→ Voir la doc](docs/commands/github.md) |
+| **github** | Stats GitHub + comparaison local/remote | [→ Voir la doc](docs/commands/github.md) |
+
+## ⚙️ Configuration & Outils
+
+| Commande | Description | Documentation |
+|----------|-------------|---------------|
+| **open** | 🆕 Ouvrir un projet dans votre IDE | - |
+| **config** | 🆕 Gérer la configuration (IDE, etc.) | - |
+| **refresh** | 🆕 Actualiser le statut git de tous les projets | - |
 
 ---
 

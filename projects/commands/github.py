@@ -152,12 +152,57 @@ def register_command(app: typer.Typer):
             display.print_info("The repository might be private or doesn't exist.")
             raise typer.Exit(1)
 
+        # Get local git status
+        from .. import git_utils
+        local_git_status = git_utils.get_git_status(path, fetch=True)
+
         # Afficher les stats dans un panel
         lines = []
         lines.append(f"[bold]Repository:[/bold] {stats['full_name']}")
 
         if stats["description"]:
             lines.append(f"[bold]Description:[/bold] {stats['description']}")
+
+        # Add local vs remote comparison section
+        lines.append("")
+        lines.append("[bold magenta]📍 Local vs Remote Status[/bold magenta]")
+
+        if local_git_status.is_repo:
+            # Local branch info
+            local_branch = local_git_status.branch or "unknown"
+            lines.append(f"[bold]Local Branch:[/bold] {local_branch}")
+            lines.append(f"[bold]Remote Default Branch:[/bold] {stats['default_branch']}")
+
+            # Sync status
+            if local_git_status.has_remote:
+                sync_status = []
+
+                if local_git_status.ahead > 0:
+                    sync_status.append(f"[yellow]↑ {local_git_status.ahead} commit(s) ahead[/yellow]")
+
+                if local_git_status.behind > 0:
+                    sync_status.append(f"[red]↓ {local_git_status.behind} commit(s) behind[/red]")
+
+                if local_git_status.uncommitted_changes > 0:
+                    sync_status.append(f"[yellow]* {local_git_status.uncommitted_changes} uncommitted change(s)[/yellow]")
+
+                if not sync_status:
+                    lines.append(f"[bold green]✓ Up to date with remote[/bold green]")
+                else:
+                    lines.append(f"[bold]Status:[/bold] {', '.join(sync_status)}")
+
+                # Recommendation
+                if local_git_status.behind > 0:
+                    lines.append(f"[bold red]⚠️  Pull before pushing to avoid conflicts[/bold red]")
+                elif local_git_status.ahead > 0 or local_git_status.uncommitted_changes > 0:
+                    lines.append(f"[bold yellow]💡 Remember to push your changes[/bold yellow]")
+            else:
+                lines.append(f"[bold yellow]⚠️  No remote tracking branch configured[/bold yellow]")
+
+            # Last push comparison
+            lines.append(f"[bold]Remote Last Push:[/bold] {stats['pushed_at'][:10]}")
+        else:
+            lines.append(f"[bold yellow]Not a git repository[/bold yellow]")
 
         lines.append("")
         lines.append(f"[bold cyan]⭐ Stars:[/bold cyan] {stats['stars']}")

@@ -20,6 +20,7 @@ class Project:
     updated_at: datetime
     last_activity: Optional[datetime]
     tags: List[str]
+    git_status: Optional[dict] = None  # Git status from cache
 
     def __post_init__(self):
         """Convert string timestamps to datetime if needed."""
