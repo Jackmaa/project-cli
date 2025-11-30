@@ -156,6 +156,36 @@ def get_git_status(path: Path, fetch: bool = False) -> GitStatus:
     return status
 
 
+def get_recent_commits(path: Path, limit: int = 5) -> list[dict[str, str]]:
+    """Get recent commits for a repository.
+
+    Returns list of dicts with keys: hash, date, author, message
+    """
+    if not is_git_repo(path):
+        return []
+
+    git_format = "--pretty=format:%h|%ar|%an|%s"
+    success, output = run_git_command(path, "log", git_format, f"-{limit}")
+
+    if not success or not output.strip():
+        return []
+
+    commits = []
+    for line in output.strip().split("\n"):
+        if not line:
+            continue
+        parts = line.split("|", maxsplit=3)
+        if len(parts) == 4:
+            commits.append({
+                "hash": parts[0],
+                "date": parts[1],
+                "author": parts[2],
+                "message": parts[3]
+            })
+
+    return commits
+
+
 def get_git_status_summary(status: GitStatus) -> str:
     """
     Get a human-readable summary of git status.

@@ -3,9 +3,11 @@
 from textual.screen import Screen
 from textual.reactive import reactive
 from textual.binding import Binding
-from textual.events import Click, MouseMove
+from textual.events import Key
 import subprocess
 from pathlib import Path
+import time
+import os
 
 from ...models import Project
 from ... import database as db
@@ -15,9 +17,9 @@ from ..widgets import (
     StatsPanel,
     GitOverview,
     SearchBar,
-    QuickActions,
     Footer,
 )
+from ..panels import DetailPanel
 
 
 class DashboardScreen(Screen):
@@ -34,10 +36,11 @@ class DashboardScreen(Screen):
         Binding("2", "set_priority('medium')", "Medium"),
         Binding("3", "set_priority('low')", "Low"),
         # Actions
+        Binding("i", "toggle_info", "Info"),
         Binding("o", "open_ide", "Open"),
-        Binding("enter", "open_ide", "Open"),
         Binding("r", "refresh_git", "Refresh"),
         Binding("/", "focus_search", "Search"),
+        Binding("escape", "clear_search", "Clear Search"),
         Binding("q", "quit", "Quit"),
     ]
 
@@ -49,17 +52,56 @@ class DashboardScreen(Screen):
     tag_filter: reactive[str | None] = reactive(None)
     priority_filter: reactive[str | None] = reactive(None)
 
+    # Info panel state
+    info_panel_visible: reactive[bool] = reactive(False)
+    selected_project: reactive[Project | None] = reactive(None)
+
+    # Debouncing for actions (prevent rapid-fire events)
+    _last_action_time: float = 0
+    _min_action_interval: float = 0.3  # 300ms between actions
+
+    # Track last key for sequence detection
+    _last_key: str = ""
+    _last_key_time: float = 0
+
+    # Debug mode - set DEBUG_TUI=1 environment variable to enable
+    _debug_enabled: bool = os.getenv("DEBUG_TUI") == "1"
+    _debug_log_path: Path = Path.home() / ".config" / "project-cli" / "tui_debug.log"
+
+    def _debug_log(self, message: str):
+        """Log debug message to file if debug mode is enabled."""
+        if not self._debug_enabled:
+            return
+
+        try:
+            with open(self._debug_log_path, "a") as f:
+                timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                f.write(f"[{timestamp}] {message}\n")
+        except Exception:
+            pass  # Ignore logging errors
+
     def compose(self):
         """Compose dashboard layout."""
+        # Note: DetailPanel is mounted dynamically in watch_info_panel_visible()
         yield SearchBar()
         yield StatsPanel()
         yield GitOverview()
         yield ProjectsTable()
-        yield QuickActions()
         yield Footer()
 
     async def on_mount(self):
         """Load data when screen mounts."""
+        self._debug_log("=== Dashboard mounted ===")
+
+        # Clear old debug log
+        if self._debug_enabled:
+            try:
+                self._debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+                if self._debug_log_path.exists():
+                    self._debug_log_path.unlink()
+            except Exception:
+                pass
+
         # Load all projects from database
         self.all_projects = db.get_all_projects()
         self.projects = self.all_projects.copy()
@@ -83,6 +125,12 @@ class DashboardScreen(Screen):
         """Handle search query changes."""
         self.search_query = message.query
         self.apply_filters()
+
+    def on_search_bar_search_submitted(self, message: SearchBar.SearchSubmitted):
+        """Handle search submission (Enter pressed)."""
+        # Return focus to the table
+        table = self.query_one(ProjectsTable)
+        table.focus()
 
     def apply_filters(self):
         """Apply all active filters to projects list."""
@@ -121,13 +169,29 @@ class DashboardScreen(Screen):
                 query_idx += 1
         return query_idx == len(query)
 
+    def _check_debounce(self) -> bool:
+        """Check if enough time has passed since last action."""
+        current_time = time.time()
+        if current_time - self._last_action_time < self._min_action_interval:
+            return False
+        self._last_action_time = current_time
+        return True
+
     def action_set_status(self, status: str):
         """Handle status change action."""
+        self._debug_log(f"ACTION: set_status('{status}')")
+
+        if not self._check_debounce():
+            self._debug_log("  -> BLOCKED by debounce")
+            return
+
         selected = self.query_one(ProjectsTable).get_selected_project()
         if not selected:
+            self._debug_log("  -> No project selected")
             self.notify("No project selected", severity="warning")
             return
 
+        self._debug_log(f"  -> Setting {selected.name} to {status}")
         if db.update_project_status(selected.name, status):
             selected.status = status
             self.apply_filters()
@@ -137,11 +201,19 @@ class DashboardScreen(Screen):
 
     def action_set_priority(self, priority: str):
         """Handle priority change action."""
+        self._debug_log(f"ACTION: set_priority('{priority}')")
+
+        if not self._check_debounce():
+            self._debug_log("  -> BLOCKED by debounce")
+            return
+
         selected = self.query_one(ProjectsTable).get_selected_project()
         if not selected:
+            self._debug_log("  -> No project selected")
             self.notify("No project selected", severity="warning")
             return
 
+        self._debug_log(f"  -> Setting {selected.name} priority to {priority}")
         if db.update_project_field(selected.name, "priority", priority):
             selected.priority = priority
             self.apply_filters()
@@ -179,14 +251,14 @@ class DashboardScreen(Screen):
             self.notify(f"Failed to open IDE: {e}", severity="error")
 
     async def action_refresh_git(self):
-        """Handle git refresh action."""
-        self.notify("Refreshing git status (with remote fetch)...", timeout=2)
+        """Handle git refresh action (local only, no remote fetch)."""
+        self.notify("Refreshing git status (local only)...", timeout=2)
 
-        # Update git status for all projects (with fetch enabled)
+        # Update git status for all projects (without remote fetch to avoid SSH prompts)
         for project in self.all_projects:
             if project.path:
                 try:
-                    db.update_git_status_for_project(project, fetch=True)
+                    db.update_git_status_for_project(project, fetch=False)
                 except Exception:
                     pass  # Continue with other projects
 
@@ -194,26 +266,122 @@ class DashboardScreen(Screen):
         self.all_projects = db.get_all_projects()
         self.apply_filters()
 
-        self.notify("Git status refreshed", severity="information")
+        self.notify("Git status refreshed (use CLI 'projects refresh --fetch' for remote)", severity="information")
 
     def action_focus_search(self):
         """Focus the search input."""
         search_input = self.query_one("#search-input", Input)
         search_input.focus()
 
+    def action_clear_search(self):
+        """Clear search and return focus to table."""
+        # Clear the search input
+        search_input = self.query_one("#search-input", Input)
+        search_input.value = ""
+
+        # Return focus to table
+        table = self.query_one(ProjectsTable)
+        table.focus()
+
     def action_quit(self):
         """Quit the application."""
         self.app.exit()
 
-    def on_click(self, event: Click):
-        """Prevent mouse clicks from triggering actions."""
-        event.prevent_default()
-        event.stop()
+    def action_toggle_info(self):
+        """Toggle info panel visibility."""
+        old_state = self.info_panel_visible
 
-    def on_mouse_move(self, event: MouseMove):
-        """Prevent mouse movements from triggering actions."""
-        event.prevent_default()
-        event.stop()
+        # Set selected project BEFORE toggling visibility (so watcher can use it)
+        if not old_state:  # If we're about to show the panel
+            table = self.query_one(ProjectsTable)
+            self.selected_project = table.get_selected_project()
+
+        # Now toggle visibility (this triggers the watcher)
+        self.info_panel_visible = not self.info_panel_visible
+
+    def watch_info_panel_visible(self, visible: bool):
+        """React to info panel visibility changes."""
+        if visible:
+            # Mount the DetailPanel
+            if self.selected_project:
+                try:
+                    panel = DetailPanel()
+                    panel.project = self.selected_project
+                    self.mount(panel)
+                except Exception:
+                    pass
+        else:
+            # Remove the DetailPanel
+            try:
+                panel = self.query_one(DetailPanel)
+                panel.remove()
+            except Exception:
+                pass
+
+    def watch_selected_project(self, project: Project | None):
+        """React to selected project changes."""
+        if self.info_panel_visible:
+            try:
+                detail_panel = self.query_one(DetailPanel)
+                detail_panel.project = project
+            except Exception:
+                pass
+
+    def on_key(self, event: Key):
+        """Filter out duplicate/phantom key events."""
+        current_time = time.time()
+        time_since_last_action = current_time - self._last_action_time
+        time_since_last_key = current_time - self._last_key_time
+
+        self._debug_log(f"KEY event: key='{event.key}' time_since_last={time_since_last_action:.3f}s")
+
+        # Detect escape sequence fragments
+        # Pattern: '[' followed quickly by A/B/C/D/M/numbers
+        is_escape_fragment = False
+
+        # Always block '[' as it's start of escape sequence
+        if event.key == 'left_square_bracket':
+            is_escape_fragment = True
+            self._debug_log(f"  -> BLOCKED (start of escape sequence)")
+
+        # Block if previous key was '[' and this is a sequence character
+        elif self._last_key == 'left_square_bracket' and time_since_last_key < 0.1:
+            if event.key in ['A', 'B', 'C', 'D', 'M', 'semicolon', 'colon'] or event.key.isdigit():
+                is_escape_fragment = True
+                self._debug_log(f"  -> BLOCKED (part of escape sequence after '[')")
+
+        # Block standalone sequence markers that shouldn't appear
+        elif event.key in ['semicolon', 'colon'] and time_since_last_key < 0.1:
+            is_escape_fragment = True
+            self._debug_log(f"  -> BLOCKED (sequence separator)")
+
+        if is_escape_fragment:
+            self._last_key = event.key
+            self._last_key_time = current_time
+            event.prevent_default()
+            event.stop()
+            return
+
+        # Update last key tracking
+        self._last_key = event.key
+        self._last_key_time = current_time
+
+        # Handle 'i' key manually since on_key handler blocks binding resolution
+        if event.key == 'i':
+            self.action_toggle_info()
+            event.prevent_default()
+            event.stop()
+            return
+
+        # Only allow key events if debounce check passes for action keys
+        if event.key in ['1', '2', '3', 'a', 'p', 'c', 'x']:
+            if time_since_last_action < self._min_action_interval:
+                self._debug_log(f"  -> BLOCKED (too fast, interval={time_since_last_action:.3f}s < {self._min_action_interval}s)")
+                event.prevent_default()
+                event.stop()
+                return
+            else:
+                self._debug_log(f"  -> ALLOWED")
 
 
 # Import Input after the class is defined

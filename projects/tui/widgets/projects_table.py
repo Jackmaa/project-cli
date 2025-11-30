@@ -14,8 +14,6 @@ class ProjectsTable(DataTable):
         self.zebra_stripes = True
         self._projects = []
         self._columns_added = False
-        # Disable mouse interactions to prevent accidental triggers
-        self.can_focus_children = False
 
     def populate(self, projects: list[Project]):
         """Populate table with projects."""

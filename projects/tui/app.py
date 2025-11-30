@@ -12,9 +12,6 @@ class ProjectDashboardApp(App):
     TITLE = "Project Dashboard"
     SUB_TITLE = "Manage your mountain of unfinished projects"
 
-    # Disable mouse support to prevent accidental interactions
-    ENABLE_COMMAND_PALETTE = False
-
     def on_mount(self):
         """Push dashboard screen on startup."""
         self.push_screen(DashboardScreen())

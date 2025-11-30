@@ -46,9 +46,9 @@ class Footer(Static):
 
         # Row 2 - Action shortcuts
         left2 = Text()
+        left2.append("i", style="bold blue")
+        left2.append(":info ")
         left2.append("o", style="bold green")
-        left2.append("/")
-        left2.append("↵", style="bold green")
         left2.append(":open ")
         left2.append("r", style="bold green")
         left2.append(":refresh ")

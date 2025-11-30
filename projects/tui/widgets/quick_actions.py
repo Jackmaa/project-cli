@@ -10,6 +10,6 @@ class QuickActions(Horizontal):
     def compose(self):
         """Compose quick actions layout."""
         yield Static(
-            "Quick Actions: [O]pen IDE  [I]nfo  [T]ree  [C]ommits  [G]itHub",
+            "[1/2/3] Priority  [A/P/C/X] Status  [O/Enter] Open  [R] Refresh  [/] Search  [Q] Quit",
             classes="quick-actions-text"
         )

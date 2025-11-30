@@ -2,35 +2,22 @@
 
 DashboardScreen {
     layout: grid;
-    grid-size: 2 5;
-    grid-rows: 3 15 1fr 3 2;
+    grid-size: 2 4;
+    grid-rows: auto 15 1fr 2;
     grid-columns: 30% 70%;
 }
 
 /* Search Bar */
 SearchBar {
     column-span: 2;
-    height: 3;
+    height: auto;
     background: $panel;
     border: solid $accent;
-    padding: 0 1;
-}
-
-.search-label {
-    width: auto;
-    height: 1;
-    content-align: left middle;
+    padding: 1;
 }
 
 #search-input {
-    width: 1fr;
-}
-
-.filter-hint {
-    width: auto;
-    height: 1;
-    content-align: right middle;
-    color: $text-muted;
+    width: 100%;
 }
 
 /* Stats Panel */
@@ -61,15 +48,15 @@ ProjectsTable > .datatable--cursor {
 /* Quick Actions */
 QuickActions {
     column-span: 2;
-    height: 3;
+    height: auto;
     background: $panel;
     border: solid $accent;
-    padding: 0 1;
+    padding: 1;
+    align: center middle;
 }
 
 .quick-actions-text {
     width: 100%;
-    height: 1;
     content-align: center middle;
 }
 
@@ -80,4 +67,56 @@ Footer {
     background: $surface;
     color: $text-muted;
     padding: 0 1;
+}
+
+/* Modal Styles */
+BaseModal, ConfirmationModal {
+    align: center middle;
+}
+
+#modal-container {
+    width: 60;
+    height: auto;
+    max-height: 80%;
+    background: $panel;
+    border: thick $accent;
+    padding: 1;
+}
+
+#modal-title {
+    width: 100%;
+    text-align: center;
+    text-style: bold;
+    background: $accent;
+    color: $text;
+    padding: 1;
+    margin-bottom: 1;
+}
+
+#modal-content {
+    width: 100%;
+    height: auto;
+}
+
+#modal-buttons {
+    width: 100%;
+    height: auto;
+    layout: horizontal;
+    align: center middle;
+    margin-top: 1;
+}
+
+#confirmation-message {
+    width: 100%;
+    padding: 1;
+    text-align: center;
+}
+
+/* Detail Panel */
+DetailPanel {
+    dock: right;
+    width: 35%;
+    border: solid magenta;
+    padding: 1;
+    overflow-y: auto;
 }
