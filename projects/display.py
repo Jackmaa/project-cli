@@ -1,6 +1,6 @@
 """Display utilities using Rich for beautiful terminal output."""
 
-from typing import List
+from typing import List, Optional
 from datetime import datetime, timedelta
 from rich.console import Console
 from rich.table import Table
@@ -240,4 +240,103 @@ def print_error(message: str):
 
 def print_info(message: str):
     console.print(f"[blue]ℹ[/blue] {message}")
+
+
+def display_remote_metrics(metrics: dict, pipeline_status: Optional[dict], remote_info: dict):
+    """
+    Display remote repository metrics in a Rich panel.
+
+    Args:
+        metrics: Dictionary with repository metrics (stars, forks, etc.)
+        pipeline_status: Optional dictionary with CI/CD pipeline status
+        remote_info: Dictionary with remote repository information
+    """
+    from rich.panel import Panel
+
+    lines = []
+    lines.append(f"[bold]Platform:[/bold] {remote_info['platform'].title()}")
+    lines.append(f"[bold]Repository:[/bold] {remote_info['owner']}/{remote_info['repo_name']}")
+    lines.append("")
+
+    # Metrics
+    lines.append(f"⭐ Stars: {metrics['stars']}  🍴 Forks: {metrics['forks']}")
+    lines.append(f"👀 Watchers: {metrics['watchers']}  ⚠️  Issues: {metrics['open_issues']}")
+    lines.append(f"🔀 Pull Requests: {metrics['open_prs']}")
+
+    if metrics.get('language'):
+        lines.append(f"💻 Language: {metrics['language']}")
+
+    if metrics.get('license'):
+        lines.append(f"📜 License: {metrics['license']}")
+
+    # Topics/tags
+    if metrics.get('topics'):
+        topics_str = ', '.join(metrics['topics'][:5])  # Show first 5
+        if len(metrics['topics']) > 5:
+            topics_str += f' (+{len(metrics["topics"]) - 5} more)'
+        lines.append(f"🏷️  Topics: {topics_str}")
+
+    # CI/CD status
+    if pipeline_status:
+        status = pipeline_status.get('conclusion', pipeline_status.get('status', 'unknown'))
+        if status == 'success':
+            status_icon = "✓"
+            status_color = "green"
+        elif status == 'failure':
+            status_icon = "❌"
+            status_color = "red"
+        elif status in ['pending', 'queued', 'in_progress']:
+            status_icon = "⏳"
+            status_color = "yellow"
+        else:
+            status_icon = "?"
+            status_color = "dim"
+
+        lines.append(f"🔧 CI/CD: [{status_color}]{status_icon} {status}[/{status_color}]")
+
+    # Last synced
+    lines.append("")
+    if remote_info.get('last_synced_at'):
+        from datetime import datetime
+        synced_dt = datetime.fromisoformat(remote_info['last_synced_at'])
+        rel_time = format_relative_time(synced_dt)
+        lines.append(f"[dim]Last synced: {rel_time}[/dim]")
+    else:
+        lines.append(f"[dim]Not synced yet[/dim]")
+
+    panel = Panel(
+        "\n".join(lines),
+        title="📊 Remote Repository",
+        border_style="cyan",
+        padding=(1, 2)
+    )
+    console.print(panel)
+
+
+def display_sync_status_table(projects: list):
+    """
+    Display sync status table for multiple projects.
+
+    Args:
+        projects: List of project dictionaries with sync information
+    """
+    from rich.table import Table
+
+    table = Table(title="Sync Status")
+    table.add_column("Project", style="cyan")
+    table.add_column("Platform", style="green")
+    table.add_column("Repository", style="blue")
+    table.add_column("Last Synced", style="yellow")
+    table.add_column("Enabled", justify="center")
+
+    for proj in projects:
+        table.add_row(
+            proj.get('name', '-'),
+            proj.get('platform', '-'),
+            proj.get('repository', '-'),
+            proj.get('last_synced', '-'),
+            proj.get('enabled', '✗')
+        )
+
+    console.print(table)
 

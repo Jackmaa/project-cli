@@ -58,14 +58,16 @@ Chaque commande possède sa propre documentation détaillée avec des exemples d
 | Commande | Description | Documentation |
 |----------|-------------|---------------|
 | **github** | Stats GitHub + comparaison local/remote | [→ Voir la doc](docs/commands/github.md) |
+| **auth** | 🆕 Gérer les tokens GitHub/GitLab | [→ Voir la doc](docs/commands/auth.md) |
+| **sync** | 🆕 Synchroniser avec GitHub (stars, forks, issues, CI/CD) | [→ Voir la doc](docs/commands/sync.md) |
 
 ## ⚙️ Configuration & Outils
 
 | Commande | Description | Documentation |
 |----------|-------------|---------------|
-| **open** | 🆕 Ouvrir un projet dans votre IDE | - |
-| **config** | 🆕 Gérer la configuration (IDE, etc.) | - |
-| **refresh** | 🆕 Actualiser le statut git de tous les projets | - |
+| **open** | Ouvrir un projet dans votre IDE | - |
+| **config** | Gérer la configuration (IDE, etc.) | - |
+| **refresh** | Actualiser le statut git de tous les projets | - |
 
 ---
 

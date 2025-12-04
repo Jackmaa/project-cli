@@ -18,49 +18,34 @@ class Footer(Static):
     """
 
     def render(self):
-        """Render footer with two rows of keyboard shortcuts."""
+        """Render footer with essential shortcuts and help prompt."""
         table = Table.grid(expand=True, padding=0)
         table.add_column(justify="left")
+        table.add_column(justify="center")
         table.add_column(justify="right")
 
-        # Row 1 - Status and Priority shortcuts
-        left1 = Text()
-        left1.append("a", style="bold cyan")
-        left1.append(":active ")
-        left1.append("p", style="bold cyan")
-        left1.append(":paused ")
-        left1.append("c", style="bold cyan")
-        left1.append(":completed ")
-        left1.append("x", style="bold cyan")
-        left1.append(":abandoned")
+        # Essential shortcuts only
+        left = Text()
+        left.append("n", style="bold green")
+        left.append(":new  ")
+        left.append("e", style="bold blue")
+        left.append(":edit  ")
+        left.append("d", style="bold red")
+        left.append(":delete  ")
+        left.append("o", style="bold green")
+        left.append(":open")
 
-        right1 = Text()
-        right1.append("1", style="bold yellow")
-        right1.append(":high ")
-        right1.append("2", style="bold yellow")
-        right1.append(":med ")
-        right1.append("3", style="bold yellow")
-        right1.append(":low")
+        center = Text()
+        center.append("Press ", style="dim")
+        center.append("?", style="bold yellow")
+        center.append(" for help", style="dim")
 
-        table.add_row(left1, right1)
+        right = Text()
+        right.append("/", style="bold magenta")
+        right.append(":search  ")
+        right.append("q", style="bold red")
+        right.append(":quit")
 
-        # Row 2 - Action shortcuts
-        left2 = Text()
-        left2.append("i", style="bold blue")
-        left2.append(":info ")
-        left2.append("o", style="bold green")
-        left2.append(":open ")
-        left2.append("r", style="bold green")
-        left2.append(":refresh ")
-        left2.append("q", style="bold red")
-        left2.append(":quit")
-
-        right2 = Text()
-        right2.append("/", style="bold magenta")
-        right2.append(":search ")
-        right2.append("f", style="bold magenta")
-        right2.append(":filter")
-
-        table.add_row(left2, right2)
+        table.add_row(left, center, right)
 
         return table

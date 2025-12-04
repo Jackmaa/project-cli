@@ -6,6 +6,8 @@ from rich.panel import Panel
 from rich.text import Text
 from pathlib import Path
 import json
+import urllib.request
+import urllib.error
 from ...models import Project
 from ... import display as display_utils
 from ... import git_utils
@@ -68,54 +70,67 @@ class DetailPanel(Static):
         """Count dependencies from various package files."""
         deps = {}
 
+        # Common subdirectories to check (for monorepos)
+        search_paths = [
+            path,
+            path / "client",
+            path / "frontend",
+            path / "server",
+            path / "backend",
+        ]
+
         # package.json (Node.js)
-        package_json = path / "package.json"
-        if package_json.exists():
-            try:
-                with open(package_json, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    count = len(data.get('dependencies', {})) + len(data.get('devDependencies', {}))
-                    if count > 0:
-                        deps['npm'] = count
-            except Exception:
-                pass
+        for search_path in search_paths:
+            package_json = search_path / "package.json"
+            if package_json.exists():
+                try:
+                    with open(package_json, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        count = len(data.get('dependencies', {})) + len(data.get('devDependencies', {}))
+                        if count > 0:
+                            deps['npm'] = deps.get('npm', 0) + count
+                except Exception:
+                    pass
 
         # requirements.txt (Python)
-        requirements = path / "requirements.txt"
-        if requirements.exists():
-            try:
-                with open(requirements, 'r', encoding='utf-8') as f:
-                    lines = [l.strip() for l in f if l.strip() and not l.startswith('#')]
-                    if lines:
-                        deps['pip'] = len(lines)
-            except Exception:
-                pass
+        for search_path in search_paths:
+            requirements = search_path / "requirements.txt"
+            if requirements.exists():
+                try:
+                    with open(requirements, 'r', encoding='utf-8') as f:
+                        lines = [l.strip() for l in f if l.strip() and not l.startswith('#')]
+                        if lines:
+                            deps['pip'] = deps.get('pip', 0) + len(lines)
+                except Exception:
+                    pass
 
         # Cargo.toml (Rust)
-        cargo = path / "Cargo.toml"
-        if cargo.exists():
-            try:
-                with open(cargo, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    if '[dependencies]' in content:
-                        # Simple count of lines after [dependencies]
-                        deps_section = content.split('[dependencies]')[1].split('[')[0]
-                        count = len([l for l in deps_section.split('\n') if '=' in l])
-                        if count > 0:
-                            deps['cargo'] = count
-            except Exception:
-                pass
+        for search_path in search_paths:
+            cargo = search_path / "Cargo.toml"
+            if cargo.exists():
+                try:
+                    with open(cargo, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        if '[dependencies]' in content:
+                            # Simple count of lines after [dependencies]
+                            deps_section = content.split('[dependencies]')[1].split('[')[0]
+                            count = len([l for l in deps_section.split('\n') if '=' in l])
+                            if count > 0:
+                                deps['cargo'] = deps.get('cargo', 0) + count
+                except Exception:
+                    pass
 
         # go.mod (Go)
-        go_mod = path / "go.mod"
-        if go_mod.exists():
-            try:
-                with open(go_mod, 'r', encoding='utf-8') as f:
-                    lines = [l for l in f if l.strip().startswith('require')]
-                    if lines:
-                        deps['go'] = len(lines)
-            except Exception:
-                pass
+        for search_path in search_paths:
+            go_mod = search_path / "go.mod"
+            if go_mod.exists():
+                try:
+                    with open(go_mod, 'r', encoding='utf-8') as f:
+                        lines = [l for l in f if l.strip().startswith('require')]
+                        if lines:
+                            deps['go'] = deps.get('go', 0) + len(lines)
+                except Exception:
+                    pass
 
         return deps
 
@@ -132,6 +147,36 @@ class DetailPanel(Static):
             elif "github.com" in output:
                 return output.replace(".git", "")
         return None
+
+    def _get_github_stats(self, github_url: str) -> dict | None:
+        """Fetch GitHub repository stats from API."""
+        try:
+            # Extract owner/repo from URL
+            # https://github.com/owner/repo -> owner/repo
+            parts = github_url.replace("https://github.com/", "").split("/")
+            if len(parts) < 2:
+                return None
+
+            owner, repo = parts[0], parts[1]
+            api_url = f"https://api.github.com/repos/{owner}/{repo}"
+
+            # Fetch with timeout
+            req = urllib.request.Request(api_url)
+            req.add_header('Accept', 'application/vnd.github.v3+json')
+
+            with urllib.request.urlopen(req, timeout=3) as response:
+                data = json.loads(response.read().decode())
+
+                return {
+                    'stars': data.get('stargazers_count', 0),
+                    'forks': data.get('forks_count', 0),
+                    'watchers': data.get('watchers_count', 0),
+                    'open_issues': data.get('open_issues_count', 0),
+                    'language': data.get('language', ''),
+                    'updated_at': data.get('updated_at', ''),
+                }
+        except Exception:
+            return None
 
     def render_project(self, project: Project):
         """Render enhanced project details."""
@@ -168,13 +213,23 @@ class DetailPanel(Static):
                 text.append(f"  • {tag}\n", style="blue")
             text.append("\n")
 
-        # GitHub remote URL
+        # GitHub remote URL and stats
         if project.path:
             path = Path(project.path)
             github_url = self._get_github_remote(path)
             if github_url:
                 text.append("🔗 GitHub\n", style="bold underline blue")
-                text.append(f"  {github_url}\n\n", style="blue italic")
+                text.append(f"  {github_url}\n", style="blue italic")
+
+                # Fetch GitHub stats
+                gh_stats = self._get_github_stats(github_url)
+                if gh_stats:
+                    text.append(f"  ⭐ {gh_stats['stars']:,} stars", style="yellow")
+                    text.append(f"  🔀 {gh_stats['forks']:,} forks", style="")
+                    text.append(f"  👁️  {gh_stats['watchers']:,} watchers\n", style="")
+                    if gh_stats['open_issues'] > 0:
+                        text.append(f"  🔴 {gh_stats['open_issues']} open issues\n", style="red")
+                text.append("\n")
 
         # Enhanced Git status with details
         if project.git_status and project.git_status.get("is_repo"):
@@ -199,9 +254,10 @@ class DetailPanel(Static):
                 text.append(f"  ✓ Working tree clean\n", style="green")
             text.append("\n")
 
-            # Recent commits section
-            if project.path:
-                path = Path(project.path)
+        # Recent commits section (separate from git status)
+        if project.path:
+            path = Path(project.path)
+            if git_utils.is_git_repo(path):
                 commits = git_utils.get_recent_commits(path, limit=5)
                 if commits:
                     text.append("📜 Recent Commits\n", style="bold underline green")

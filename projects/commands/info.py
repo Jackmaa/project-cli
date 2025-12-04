@@ -19,3 +19,12 @@ def register_command(app: typer.Typer):
             raise typer.Exit(1)
 
         display.display_project_details(project)
+
+        # Show remote metrics if available
+        metrics = db.get_metrics_for_project(project.id)
+        if metrics:
+            remote_info = db.get_remote_repo_info(project.id)
+            if remote_info:
+                pipeline = db.get_latest_pipeline_status(remote_info['id'])
+                print()  # Add spacing
+                display.display_remote_metrics(metrics, pipeline, remote_info)
