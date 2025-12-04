@@ -20,6 +20,7 @@ from ..widgets import (
     Footer,
 )
 from ..panels import DetailPanel
+from ..modals import TagModal, AddProjectModal, EditProjectModal, ScanModal, ConfirmationModal, HelpModal
 
 
 class DashboardScreen(Screen):
@@ -37,10 +38,18 @@ class DashboardScreen(Screen):
         Binding("3", "set_priority('low')", "Low"),
         # Actions
         Binding("i", "toggle_info", "Info"),
+        Binding("t", "manage_tags", "Tags"),
         Binding("o", "open_ide", "Open"),
         Binding("r", "refresh_git", "Refresh"),
+        # Project management
+        Binding("n", "add_project", "New"),
+        Binding("e", "edit_project", "Edit"),
+        Binding("d", "delete_project", "Delete"),
+        Binding("s", "scan_directory", "Scan"),
+        # Navigation
         Binding("/", "focus_search", "Search"),
         Binding("escape", "clear_search", "Clear Search"),
+        Binding("?", "show_help", "Help"),
         Binding("q", "quit", "Quit"),
     ]
 
@@ -287,6 +296,10 @@ class DashboardScreen(Screen):
         """Quit the application."""
         self.app.exit()
 
+    def action_show_help(self):
+        """Show help modal with keybindings."""
+        self.app.push_screen(HelpModal())
+
     def action_toggle_info(self):
         """Toggle info panel visibility."""
         old_state = self.info_panel_visible
@@ -298,6 +311,41 @@ class DashboardScreen(Screen):
 
         # Now toggle visibility (this triggers the watcher)
         self.info_panel_visible = not self.info_panel_visible
+
+    def action_manage_tags(self):
+        """Manage tags for the selected project."""
+        selected = self.query_one(ProjectsTable).get_selected_project()
+        if not selected:
+            self.notify("No project selected", severity="warning")
+            return
+
+        # Store selected project name for the callback
+        self._editing_tags_for = selected.name
+
+        self.app.push_screen(TagModal(selected), callback=self._on_tags_updated)
+
+    def _on_tags_updated(self, result):
+        """Handle tag modal dismissal."""
+        if result:
+            # Reload projects from database to get updated tags
+            self.all_projects = db.get_all_projects()
+            self.apply_filters()
+            # Force table refresh
+            self.query_one(ProjectsTable).populate(self.projects)
+
+            # Update detail panel if visible
+            if self.info_panel_visible and self.selected_project:
+                self.selected_project = next(
+                    (p for p in self.all_projects if p.name == self._editing_tags_for),
+                    None
+                )
+                try:
+                    detail_panel = self.query_one(DetailPanel)
+                    detail_panel.project = self.selected_project
+                except Exception:
+                    pass
+
+            self.notify(f"Tags updated for {self._editing_tags_for}", severity="information")
 
     def watch_info_panel_visible(self, visible: bool):
         """React to info panel visibility changes."""
@@ -337,14 +385,17 @@ class DashboardScreen(Screen):
 
         # Detect escape sequence fragments
         # Pattern: '[' followed quickly by A/B/C/D/M/numbers
+        # Note: We need to allow valid sequences like Shift+Tab (ESC[Z) through
         is_escape_fragment = False
 
-        # Always block '[' as it's start of escape sequence
-        if event.key == 'left_square_bracket':
+        # Block '[' only if it appears to be a phantom sequence fragment
+        # Don't block it if Textual might need it for valid key sequences
+        if event.key == 'left_square_bracket' and self._last_key in ['A', 'B', 'C', 'D', 'M']:
+            # This looks like a phantom '[' after arrow/mouse movement
             is_escape_fragment = True
-            self._debug_log(f"  -> BLOCKED (start of escape sequence)")
+            self._debug_log(f"  -> BLOCKED (phantom '[' after sequence)")
 
-        # Block if previous key was '[' and this is a sequence character
+        # Block arrow keys and mouse sequences after '[' (phantom events)
         elif self._last_key == 'left_square_bracket' and time_since_last_key < 0.1:
             if event.key in ['A', 'B', 'C', 'D', 'M', 'semicolon', 'colon'] or event.key.isdigit():
                 is_escape_fragment = True
@@ -382,6 +433,89 @@ class DashboardScreen(Screen):
                 return
             else:
                 self._debug_log(f"  -> ALLOWED")
+
+    def action_add_project(self):
+        """Handle add project action."""
+        self.app.push_screen(AddProjectModal(), callback=self._on_add_project_complete)
+
+    def _on_add_project_complete(self, result):
+        """Handle add project modal dismissal."""
+        if result:
+            # Reload projects from database
+            self.all_projects = db.get_all_projects()
+            self.apply_filters()
+            # Force table refresh
+            self.query_one(ProjectsTable).populate(self.projects)
+            self.notify("Project added successfully", severity="information")
+
+    def action_edit_project(self):
+        """Handle edit project action."""
+        selected = self.query_one(ProjectsTable).get_selected_project()
+        if not selected:
+            self.notify("No project selected", severity="warning")
+            return
+
+        self.app.push_screen(EditProjectModal(selected), callback=self._on_edit_project_complete)
+
+    def _on_edit_project_complete(self, result):
+        """Handle edit project modal dismissal."""
+        if result:
+            # Reload projects from database
+            self.all_projects = db.get_all_projects()
+            self.apply_filters()
+            # Force table refresh
+            self.query_one(ProjectsTable).populate(self.projects)
+            self.notify("Project updated successfully", severity="information")
+
+    def action_delete_project(self):
+        """Handle delete project action."""
+        selected = self.query_one(ProjectsTable).get_selected_project()
+        if not selected:
+            self.notify("No project selected", severity="warning")
+            return
+
+        # Store selected project name for the callback
+        self._deleting_project_name = selected.name
+
+        # Show confirmation dialog
+        self.app.push_screen(
+            ConfirmationModal(
+                title="Delete Project",
+                message=f"Are you sure you want to delete '{selected.name}'?\n\nThis action cannot be undone.",
+                confirm_text="Delete",
+                cancel_text="Cancel",
+                confirm_variant="error"
+            ),
+            callback=self._on_delete_project_confirm
+        )
+
+    def _on_delete_project_confirm(self, result):
+        """Handle delete confirmation modal dismissal."""
+        if result:
+            # Delete the project
+            if db.delete_project(self._deleting_project_name):
+                # Reload projects from database
+                self.all_projects = db.get_all_projects()
+                self.apply_filters()
+                # Force table refresh
+                self.query_one(ProjectsTable).populate(self.projects)
+                self.notify(f"Deleted project '{self._deleting_project_name}'", severity="information")
+            else:
+                self.notify(f"Failed to delete project '{self._deleting_project_name}'", severity="error")
+
+    def action_scan_directory(self):
+        """Handle scan directory action."""
+        self.app.push_screen(ScanModal(), callback=self._on_scan_complete)
+
+    def _on_scan_complete(self, result):
+        """Handle scan modal dismissal."""
+        if result:
+            # Reload projects from database
+            self.all_projects = db.get_all_projects()
+            self.apply_filters()
+            # Force table refresh
+            self.query_one(ProjectsTable).populate(self.projects)
+            self.notify("Directory scan completed", severity="information")
 
 
 # Import Input after the class is defined
