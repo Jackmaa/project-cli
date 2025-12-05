@@ -220,3 +220,374 @@ def get_git_status_summary(status: GitStatus) -> str:
         parts.append(f"*{status.uncommitted_changes}")
 
     return " ".join(parts)
+
+
+# ============================================================================
+# BRANCH OPERATIONS
+# ============================================================================
+
+def get_all_branches(path: Path, include_remote: bool = True) -> list[dict]:
+    """
+    Get all branches (local and optionally remote).
+
+    Args:
+        path: Path to git repository
+        include_remote: Include remote branches
+
+    Returns:
+        List of dicts with keys: name, is_current, is_remote, last_commit_hash, last_commit_date
+    """
+    if not is_git_repo(path):
+        return []
+
+    # Get all branches with verbose info
+    args = ["branch", "-v", "--format=%(refname:short)|%(HEAD)|%(objectname:short)|%(committerdate:iso)"]
+    if include_remote:
+        args.insert(1, "-a")
+
+    success, output = run_git_command(path, *args)
+    if not success or not output:
+        return []
+
+    branches = []
+    for line in output.split("\n"):
+        if not line.strip():
+            continue
+
+        parts = line.split("|")
+        if len(parts) >= 4:
+            branch_name = parts[0].strip()
+            is_current = parts[1].strip() == "*"
+            is_remote = branch_name.startswith("remotes/")
+
+            # Clean up remote branch names
+            if is_remote:
+                branch_name = branch_name.replace("remotes/", "")
+
+            branches.append({
+                "name": branch_name,
+                "is_current": is_current,
+                "is_remote": is_remote,
+                "last_commit_hash": parts[2].strip(),
+                "last_commit_date": parts[3].strip() if len(parts) > 3 else None,
+            })
+
+    return branches
+
+
+def checkout_branch(path: Path, branch_name: str, create: bool = False) -> tuple[bool, str]:
+    """
+    Checkout a branch, optionally creating it.
+
+    Args:
+        path: Path to git repository
+        branch_name: Name of branch to checkout
+        create: Create branch if it doesn't exist
+
+    Returns:
+        (success, message)
+    """
+    if not is_git_repo(path):
+        return False, "Not a git repository"
+
+    if create:
+        success, output = run_git_command(path, "checkout", "-b", branch_name)
+    else:
+        success, output = run_git_command(path, "checkout", branch_name)
+
+    if success:
+        return True, f"Switched to branch '{branch_name}'"
+    else:
+        return False, output
+
+
+def delete_branch(path: Path, branch_name: str, force: bool = False) -> tuple[bool, str]:
+    """
+    Delete a branch.
+
+    Args:
+        path: Path to git repository
+        branch_name: Name of branch to delete
+        force: Force delete unmerged branch
+
+    Returns:
+        (success, message)
+    """
+    if not is_git_repo(path):
+        return False, "Not a git repository"
+
+    flag = "-D" if force else "-d"
+    success, output = run_git_command(path, "branch", flag, branch_name)
+
+    if success:
+        return True, f"Deleted branch '{branch_name}'"
+    else:
+        return False, output
+
+
+def pull_current_branch(path: Path) -> tuple[bool, str]:
+    """
+    Pull current branch from remote.
+
+    Args:
+        path: Path to git repository
+
+    Returns:
+        (success, message)
+    """
+    if not is_git_repo(path):
+        return False, "Not a git repository"
+
+    success, output = run_git_command(path, "pull")
+
+    if success:
+        # Check if already up to date
+        if "Already up to date" in output or "Already up-to-date" in output:
+            return True, "Already up to date"
+        else:
+            return True, output
+    else:
+        return False, output
+
+
+def push_current_branch(path: Path, set_upstream: bool = False) -> tuple[bool, str]:
+    """
+    Push current branch to remote.
+
+    Args:
+        path: Path to git repository
+        set_upstream: Set upstream tracking branch
+
+    Returns:
+        (success, message)
+    """
+    if not is_git_repo(path):
+        return False, "Not a git repository"
+
+    if set_upstream:
+        # Get current branch
+        branch = get_current_branch(path)
+        if not branch:
+            return False, "Could not determine current branch"
+
+        success, output = run_git_command(path, "push", "-u", "origin", branch)
+    else:
+        success, output = run_git_command(path, "push")
+
+    if success:
+        return True, output
+    else:
+        return False, output
+
+
+# ============================================================================
+# STASH OPERATIONS
+# ============================================================================
+
+def get_stashes(path: Path) -> list[dict]:
+    """
+    Get all stashes.
+
+    Args:
+        path: Path to git repository
+
+    Returns:
+        List of dicts with keys: index, name, branch, created_date
+    """
+    if not is_git_repo(path):
+        return []
+
+    success, output = run_git_command(path, "stash", "list", "--format=%gd|%s|%cr")
+    if not success or not output:
+        return []
+
+    stashes = []
+    for idx, line in enumerate(output.split("\n")):
+        if not line.strip():
+            continue
+
+        parts = line.split("|", 2)
+        if len(parts) >= 2:
+            stash_ref = parts[0].strip()  # e.g., "stash@{0}"
+            stash_name = parts[1].strip()
+            created_date = parts[2].strip() if len(parts) > 2 else "Unknown"
+
+            # Extract branch from stash message if present
+            # Format is usually "WIP on <branch>: <hash> <message>" or "On <branch>: <message>"
+            branch = None
+            if "WIP on " in stash_name:
+                branch = stash_name.split("WIP on ")[1].split(":")[0].strip()
+            elif "On " in stash_name:
+                branch = stash_name.split("On ")[1].split(":")[0].strip()
+
+            stashes.append({
+                "index": idx,
+                "name": stash_name,
+                "branch": branch,
+                "created_date": created_date,
+            })
+
+    return stashes
+
+
+def stash_changes(path: Path, message: Optional[str] = None, include_untracked: bool = False) -> tuple[bool, str]:
+    """
+    Stash current changes.
+
+    Args:
+        path: Path to git repository
+        message: Optional stash message
+        include_untracked: Include untracked files
+
+    Returns:
+        (success, message)
+    """
+    if not is_git_repo(path):
+        return False, "Not a git repository"
+
+    args = ["stash", "push"]
+
+    if include_untracked:
+        args.append("-u")
+
+    if message:
+        args.extend(["-m", message])
+
+    success, output = run_git_command(path, *args)
+
+    if success:
+        if "No local changes to save" in output:
+            return True, "No changes to stash"
+        else:
+            return True, f"Stashed changes"
+    else:
+        return False, output
+
+
+def apply_stash(path: Path, stash_index: int = 0) -> tuple[bool, str]:
+    """
+    Apply a stash without removing it.
+
+    Args:
+        path: Path to git repository
+        stash_index: Stash index (0 is most recent)
+
+    Returns:
+        (success, message)
+    """
+    if not is_git_repo(path):
+        return False, "Not a git repository"
+
+    stash_ref = f"stash@{{{stash_index}}}"
+    success, output = run_git_command(path, "stash", "apply", stash_ref)
+
+    if success:
+        return True, f"Applied stash {stash_index}"
+    else:
+        return False, output
+
+
+def pop_stash(path: Path, stash_index: int = 0) -> tuple[bool, str]:
+    """
+    Apply a stash and remove it from the stash list.
+
+    Args:
+        path: Path to git repository
+        stash_index: Stash index (0 is most recent)
+
+    Returns:
+        (success, message)
+    """
+    if not is_git_repo(path):
+        return False, "Not a git repository"
+
+    stash_ref = f"stash@{{{stash_index}}}"
+    success, output = run_git_command(path, "stash", "pop", stash_ref)
+
+    if success:
+        return True, f"Popped stash {stash_index}"
+    else:
+        return False, output
+
+
+def drop_stash(path: Path, stash_index: int = 0) -> tuple[bool, str]:
+    """
+    Drop a stash from the stash list.
+
+    Args:
+        path: Path to git repository
+        stash_index: Stash index (0 is most recent)
+
+    Returns:
+        (success, message)
+    """
+    if not is_git_repo(path):
+        return False, "Not a git repository"
+
+    stash_ref = f"stash@{{{stash_index}}}"
+    success, output = run_git_command(path, "stash", "drop", stash_ref)
+
+    if success:
+        return True, f"Dropped stash {stash_index}"
+    else:
+        return False, output
+
+
+# ============================================================================
+# TIME TRACKING HELPERS
+# ============================================================================
+
+def get_commit_info(path: Path, commit_hash: str) -> Optional[dict]:
+    """
+    Get information about a specific commit.
+
+    Args:
+        path: Path to git repository
+        commit_hash: Commit hash
+
+    Returns:
+        Dict with keys: hash, message, author, date, branch
+    """
+    if not is_git_repo(path):
+        return None
+
+    # Get commit info
+    success, output = run_git_command(
+        path, "show", "--format=%H|%s|%an|%ai", "--no-patch", commit_hash
+    )
+    if not success or not output:
+        return None
+
+    parts = output.split("|")
+    if len(parts) >= 4:
+        # Get branch (if possible)
+        branch = get_current_branch(path)
+
+        return {
+            "hash": parts[0].strip(),
+            "message": parts[1].strip(),
+            "author": parts[2].strip(),
+            "date": parts[3].strip(),
+            "branch": branch,
+        }
+
+    return None
+
+
+def get_last_commit_hash(path: Path) -> Optional[str]:
+    """
+    Get the hash of the last commit (HEAD).
+
+    Args:
+        path: Path to git repository
+
+    Returns:
+        Commit hash or None
+    """
+    if not is_git_repo(path):
+        return None
+
+    success, output = run_git_command(path, "rev-parse", "HEAD")
+    if success and output:
+        return output
+    return None

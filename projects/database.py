@@ -1201,3 +1201,503 @@ def get_sync_statistics() -> dict:
         'by_platform': by_platform,
         'never_synced': never_synced,
     }
+
+
+# ============================================================================
+# PROJECT SETTINGS (AUTO-REFRESH, HOOKS)
+# ============================================================================
+
+def enable_auto_refresh(project_id: int, enabled: bool = True) -> bool:
+    """
+    Enable or disable auto-refresh for a project.
+
+    Args:
+        project_id: Project ID
+        enabled: True to enable, False to disable
+
+    Returns:
+        True if successful
+    """
+    conn = init_db()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+            UPDATE projects
+            SET auto_refresh_enabled = ?
+            WHERE id = ?
+        """, (1 if enabled else 0, project_id))
+        conn.commit()
+        success = cursor.rowcount > 0
+    finally:
+        conn.close()
+
+    return success
+
+
+def is_auto_refresh_enabled(project_id: int) -> bool:
+    """
+    Check if auto-refresh is enabled for a project.
+
+    Args:
+        project_id: Project ID
+
+    Returns:
+        True if auto-refresh is enabled
+    """
+    conn = init_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT auto_refresh_enabled FROM projects WHERE id = ?
+    """, (project_id,))
+    row = cursor.fetchone()
+
+    conn.close()
+    return bool(row[0]) if row else False
+
+
+def mark_hooks_installed(project_id: int, installed: bool = True) -> bool:
+    """
+    Mark hooks as installed or uninstalled for a project.
+
+    Args:
+        project_id: Project ID
+        installed: True if hooks are installed, False otherwise
+
+    Returns:
+        True if successful
+    """
+    conn = init_db()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+            UPDATE projects
+            SET hooks_installed = ?
+            WHERE id = ?
+        """, (1 if installed else 0, project_id))
+        conn.commit()
+        success = cursor.rowcount > 0
+    finally:
+        conn.close()
+
+    return success
+
+
+def is_hooks_installed(project_id: int) -> bool:
+    """
+    Check if hooks are installed for a project.
+
+    Args:
+        project_id: Project ID
+
+    Returns:
+        True if hooks are installed
+    """
+    conn = init_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT hooks_installed FROM projects WHERE id = ?
+    """, (project_id,))
+    row = cursor.fetchone()
+
+    conn.close()
+    return bool(row[0]) if row else False
+
+
+def get_auto_refresh_projects() -> List[int]:
+    """
+    Get list of project IDs that have auto-refresh enabled.
+
+    Returns:
+        List of project IDs
+    """
+    conn = init_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id FROM projects WHERE auto_refresh_enabled = 1
+    """)
+    project_ids = [row[0] for row in cursor.fetchall()]
+
+    conn.close()
+    return project_ids
+
+
+# ============================================================================
+# TIME TRACKING
+# ============================================================================
+
+def log_commit_time(
+    project_id: int,
+    commit_hash: str,
+    time_minutes: int,
+    commit_message: str,
+    author: str,
+    branch: str,
+    commit_date: str,
+    tags: Optional[str] = None,
+    notes: Optional[str] = None
+) -> bool:
+    """
+    Log time spent on a commit.
+
+    Args:
+        project_id: Project ID
+        commit_hash: Git commit hash
+        time_minutes: Time spent in minutes
+        commit_message: Commit message
+        author: Commit author
+        branch: Git branch
+        commit_date: Commit timestamp
+        tags: Optional JSON string of tags
+        notes: Optional notes
+
+    Returns:
+        True if successful
+    """
+    conn = init_db()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+            INSERT OR IGNORE INTO commit_time_logs
+            (project_id, commit_hash, commit_message, commit_date,
+             time_spent_minutes, author, branch, tags, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (project_id, commit_hash, commit_message, commit_date,
+              time_minutes, author, branch, tags, notes))
+        conn.commit()
+        success = cursor.rowcount > 0
+    finally:
+        conn.close()
+
+    return success
+
+
+def get_commit_time_logs(project_id: Optional[int] = None, days: int = 30) -> List[dict]:
+    """
+    Get commit time logs for a project or all projects.
+
+    Args:
+        project_id: Optional project ID (None for all projects)
+        days: Number of days to look back
+
+    Returns:
+        List of dictionaries with commit time data
+    """
+    from datetime import datetime, timedelta
+
+    conn = init_db()
+    cursor = conn.cursor()
+
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+
+    if project_id:
+        cursor.execute("""
+            SELECT ctl.id, ctl.project_id, p.name, ctl.commit_hash,
+                   ctl.commit_message, ctl.commit_date, ctl.time_spent_minutes,
+                   ctl.author, ctl.branch, ctl.tags, ctl.notes, ctl.logged_at
+            FROM commit_time_logs ctl
+            JOIN projects p ON ctl.project_id = p.id
+            WHERE ctl.project_id = ? AND ctl.commit_date > ?
+            ORDER BY ctl.commit_date DESC
+        """, (project_id, cutoff))
+    else:
+        cursor.execute("""
+            SELECT ctl.id, ctl.project_id, p.name, ctl.commit_hash,
+                   ctl.commit_message, ctl.commit_date, ctl.time_spent_minutes,
+                   ctl.author, ctl.branch, ctl.tags, ctl.notes, ctl.logged_at
+            FROM commit_time_logs ctl
+            JOIN projects p ON ctl.project_id = p.id
+            WHERE ctl.commit_date > ?
+            ORDER BY ctl.commit_date DESC
+        """, (cutoff,))
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    logs = []
+    for row in rows:
+        logs.append({
+            'id': row[0],
+            'project_id': row[1],
+            'project_name': row[2],
+            'commit_hash': row[3],
+            'commit_message': row[4],
+            'commit_date': row[5],
+            'time_spent_minutes': row[6],
+            'author': row[7],
+            'branch': row[8],
+            'tags': row[9],
+            'notes': row[10],
+            'logged_at': row[11],
+        })
+
+    return logs
+
+
+def get_time_summary_by_day(project_id: Optional[int] = None, days: int = 30) -> List[dict]:
+    """
+    Get time summary aggregated by day.
+
+    Args:
+        project_id: Optional project ID (None for all projects)
+        days: Number of days to look back
+
+    Returns:
+        List of dictionaries with daily summaries
+    """
+    from datetime import datetime, timedelta
+
+    conn = init_db()
+    cursor = conn.cursor()
+
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+
+    if project_id:
+        cursor.execute("""
+            SELECT DATE(commit_date) as day,
+                   COUNT(*) as commit_count,
+                   SUM(time_spent_minutes) as total_minutes
+            FROM commit_time_logs
+            WHERE project_id = ? AND commit_date > ?
+            GROUP BY DATE(commit_date)
+            ORDER BY day DESC
+        """, (project_id, cutoff))
+    else:
+        cursor.execute("""
+            SELECT DATE(commit_date) as day,
+                   COUNT(*) as commit_count,
+                   SUM(time_spent_minutes) as total_minutes
+            FROM commit_time_logs
+            WHERE commit_date > ?
+            GROUP BY DATE(commit_date)
+            ORDER BY day DESC
+        """, (cutoff,))
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    summaries = []
+    for row in rows:
+        summaries.append({
+            'day': row[0],
+            'commit_count': row[1],
+            'total_minutes': row[2],
+        })
+
+    return summaries
+
+
+def get_time_summary_by_project(days: int = 30) -> List[dict]:
+    """
+    Get time summary aggregated by project.
+
+    Args:
+        days: Number of days to look back
+
+    Returns:
+        List of dictionaries with project summaries
+    """
+    from datetime import datetime, timedelta
+
+    conn = init_db()
+    cursor = conn.cursor()
+
+    cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+
+    cursor.execute("""
+        SELECT p.id, p.name,
+               COUNT(*) as commit_count,
+               SUM(time_spent_minutes) as total_minutes
+        FROM commit_time_logs ctl
+        JOIN projects p ON ctl.project_id = p.id
+        WHERE ctl.commit_date > ?
+        GROUP BY p.id, p.name
+        ORDER BY total_minutes DESC
+    """, (cutoff,))
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    summaries = []
+    for row in rows:
+        summaries.append({
+            'project_id': row[0],
+            'project_name': row[1],
+            'commit_count': row[2],
+            'total_minutes': row[3],
+        })
+
+    return summaries
+
+
+# ============================================================================
+# BRANCH AND STASH CACHE
+# ============================================================================
+
+def save_branches_cache(project_id: int, branches: List[dict]) -> None:
+    """
+    Save branches to cache.
+
+    Args:
+        project_id: Project ID
+        branches: List of branch dictionaries with keys:
+                  name, is_current, is_remote, last_commit_hash, last_commit_date
+    """
+    conn = init_db()
+    cursor = conn.cursor()
+
+    try:
+        # Clear old cache
+        cursor.execute("""
+            DELETE FROM git_branches_cache WHERE project_id = ?
+        """, (project_id,))
+
+        # Insert new cache
+        for branch in branches:
+            cursor.execute("""
+                INSERT INTO git_branches_cache
+                (project_id, branch_name, is_current, is_remote,
+                 last_commit_hash, last_commit_date)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                project_id,
+                branch['name'],
+                1 if branch.get('is_current', False) else 0,
+                1 if branch.get('is_remote', False) else 0,
+                branch.get('last_commit_hash'),
+                branch.get('last_commit_date'),
+            ))
+
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_branches_cache(project_id: int, ttl_minutes: int = 10) -> Optional[List[dict]]:
+    """
+    Get branches from cache if not stale.
+
+    Args:
+        project_id: Project ID
+        ttl_minutes: Cache TTL in minutes
+
+    Returns:
+        List of branch dictionaries or None if cache is stale
+    """
+    from datetime import datetime, timedelta
+
+    conn = init_db()
+    cursor = conn.cursor()
+
+    cutoff = (datetime.now() - timedelta(minutes=ttl_minutes)).isoformat()
+
+    cursor.execute("""
+        SELECT branch_name, is_current, is_remote,
+               last_commit_hash, last_commit_date, cached_at
+        FROM git_branches_cache
+        WHERE project_id = ? AND cached_at > ?
+        ORDER BY is_current DESC, branch_name ASC
+    """, (project_id, cutoff))
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    if not rows:
+        return None
+
+    branches = []
+    for row in rows:
+        branches.append({
+            'name': row[0],
+            'is_current': bool(row[1]),
+            'is_remote': bool(row[2]),
+            'last_commit_hash': row[3],
+            'last_commit_date': row[4],
+        })
+
+    return branches
+
+
+def save_stashes_cache(project_id: int, stashes: List[dict]) -> None:
+    """
+    Save stashes to cache.
+
+    Args:
+        project_id: Project ID
+        stashes: List of stash dictionaries with keys:
+                 index, name, branch, created_date
+    """
+    conn = init_db()
+    cursor = conn.cursor()
+
+    try:
+        # Clear old cache
+        cursor.execute("""
+            DELETE FROM git_stashes_cache WHERE project_id = ?
+        """, (project_id,))
+
+        # Insert new cache
+        for stash in stashes:
+            cursor.execute("""
+                INSERT INTO git_stashes_cache
+                (project_id, stash_index, stash_name, branch, created_date)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                project_id,
+                stash['index'],
+                stash['name'],
+                stash.get('branch'),
+                stash.get('created_date'),
+            ))
+
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_stashes_cache(project_id: int, ttl_minutes: int = 10) -> Optional[List[dict]]:
+    """
+    Get stashes from cache if not stale.
+
+    Args:
+        project_id: Project ID
+        ttl_minutes: Cache TTL in minutes
+
+    Returns:
+        List of stash dictionaries or None if cache is stale
+    """
+    from datetime import datetime, timedelta
+
+    conn = init_db()
+    cursor = conn.cursor()
+
+    cutoff = (datetime.now() - timedelta(minutes=ttl_minutes)).isoformat()
+
+    cursor.execute("""
+        SELECT stash_index, stash_name, branch, created_date, cached_at
+        FROM git_stashes_cache
+        WHERE project_id = ? AND cached_at > ?
+        ORDER BY stash_index ASC
+    """, (project_id, cutoff))
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    if not rows:
+        return None
+
+    stashes = []
+    for row in rows:
+        stashes.append({
+            'index': row[0],
+            'name': row[1],
+            'branch': row[2],
+            'created_date': row[3],
+        })
+
+    return stashes
