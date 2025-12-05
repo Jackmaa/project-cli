@@ -37,6 +37,20 @@ Tu as des dizaines de projets en cours, abandonnés, ou pausés ? Tu ne sais plu
 - **Nouveau !** Commande `config` pour gérer vos préférences (IDE, etc.)
 - **Nouveau !** Détection automatique des IDEs installés (nvim, vim, code, cursor, etc.)
 
+### Suivi du Temps et Productivité
+- **🆕 Nouveau !** Suivi automatique du temps passé sur les commits
+  - Hook git post-commit pour enregistrer le temps
+  - Visualisations avec graphiques en terminal (plotext)
+  - Agrégations par jour ou par projet
+  - Historique détaillé des commits avec temps
+  - Installation simple sur un ou tous les projets
+
+### Synchronisation GitHub/GitLab
+- **Nouveau !** Synchronisation avec GitHub (étoiles, forks, issues, PRs)
+- **Nouveau !** Authentification sécurisée (keyring + fichiers chiffrés)
+- **Nouveau !** Cache de 24h pour les métriques distantes
+- **Nouveau !** Intégration dans la commande `info`
+
 ### Autres
 - Journalisation d'activité avec `log`
 - Visualiser l'arborescence des fichiers avec `tree`
@@ -221,6 +235,35 @@ python3 -m projects.cli git-tree "my-project" --all
 
 # Filtrer par auteur
 python3 -m projects.cli git-tree "my-project" --author "Valentin"
+```
+
+### Track - Suivi du temps ⏱️
+
+```bash
+# 1. Installer le hook sur un projet
+python3 -m projects.cli track install-hooks "my-project"
+
+# Ou installer sur tous les projets
+python3 -m projects.cli track install-hooks --all
+
+# 2. Travailler et commiter normalement
+git commit -m "feat: Add new feature"
+# Prompt: Enter time in minutes: 45
+
+# 3. Voir l'historique des commits avec temps
+python3 -m projects.cli track log "my-project"
+
+# 4. Résumé par jour
+python3 -m projects.cli track summary
+
+# 5. Résumé par projet
+python3 -m projects.cli track summary --by-project
+
+# 6. Avec graphique en terminal !
+python3 -m projects.cli track summary --chart --days 7
+
+# 7. Vérifier le statut des hooks
+python3 -m projects.cli track status
 ```
 
 ### Log - Journalisation d'activité

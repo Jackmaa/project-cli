@@ -26,10 +26,13 @@ project-cli/
 │       ├── edit.py
 │       ├── scan.py
 │       ├── stale.py
-│       ├── commits.py      # Nouvelle commande !
-│       ├── log.py          # Nouvelle commande !
-│       ├── tree.py         # Nouvelle commande !
-│       └── github.py       # Nouvelle commande !
+│       ├── commits.py
+│       ├── log.py
+│       ├── tree.py
+│       ├── github.py
+│       ├── auth.py         # Authentification GitHub/GitLab
+│       ├── sync.py         # Synchronisation remote
+│       └── track.py        # 🆕 Suivi du temps !
 ├── pyproject.toml
 └── README.md
 ```

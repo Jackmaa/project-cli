@@ -1459,22 +1459,22 @@ def get_time_summary_by_day(project_id: Optional[int] = None, days: int = 30) ->
 
     if project_id:
         cursor.execute("""
-            SELECT DATE(commit_date) as day,
+            SELECT DATE(SUBSTR(commit_date, 1, 10)) as day,
                    COUNT(*) as commit_count,
                    SUM(time_spent_minutes) as total_minutes
             FROM commit_time_logs
             WHERE project_id = ? AND commit_date > ?
-            GROUP BY DATE(commit_date)
+            GROUP BY DATE(SUBSTR(commit_date, 1, 10))
             ORDER BY day DESC
         """, (project_id, cutoff))
     else:
         cursor.execute("""
-            SELECT DATE(commit_date) as day,
+            SELECT DATE(SUBSTR(commit_date, 1, 10)) as day,
                    COUNT(*) as commit_count,
                    SUM(time_spent_minutes) as total_minutes
             FROM commit_time_logs
             WHERE commit_date > ?
-            GROUP BY DATE(commit_date)
+            GROUP BY DATE(SUBSTR(commit_date, 1, 10))
             ORDER BY day DESC
         """, (cutoff,))
 

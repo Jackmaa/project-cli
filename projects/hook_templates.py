@@ -65,11 +65,19 @@ def prompt_for_time():
     print("Enter time in minutes (or press Enter to skip): ", end='', flush=True)
 
     try:
-        time_input = input().strip()
+        # Try to read from /dev/tty for truly interactive input
+        # This works even when git hooks redirect stdin/stdout
+        try:
+            with open('/dev/tty', 'r') as tty:
+                time_input = tty.readline().strip()
+        except (OSError, IOError):
+            # Fall back to regular input if /dev/tty not available
+            time_input = input().strip()
+
         if not time_input:
             return None
         return int(time_input)
-    except (ValueError, KeyboardInterrupt):
+    except (ValueError, KeyboardInterrupt, EOFError):
         print()
         return None
 

@@ -52,6 +52,7 @@ Chaque commande possède sa propre documentation détaillée avec des exemples d
 | Commande | Description | Documentation |
 |----------|-------------|---------------|
 | **log** | Journaliser et voir l'activité | [→ Voir la doc](docs/commands/log.md) |
+| **track** | 🆕 Suivre le temps passé sur les commits (graphiques inclus) | [→ Voir la doc](docs/commands/track.md) |
 
 ## 🌐 Intégrations
 
